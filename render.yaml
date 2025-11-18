@@ -1,0 +1,9 @@
+services:
+  - type: web
+    name: valuepickr-mcp
+    env: node
+    buildCommand: npm install
+    startCommand: node src/server-http.js
+    envVars:
+      - key: NODE_ENV
+        value: production
