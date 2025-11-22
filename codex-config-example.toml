@@ -1,0 +1,8 @@
+# Add this to your ~/.codex/config.toml file
+
+[mcp_servers.valuepickr]
+command = "node"
+args = ["/Users/gaurangmathur/Gaurang/Code/Gemini Website/ValuePickr/valuepickr-mcp/src/index.js"]
+enabled = true
+startup_timeout_sec = 10
+tool_timeout_sec = 60
