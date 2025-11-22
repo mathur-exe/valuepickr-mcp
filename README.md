@@ -43,103 +43,26 @@ codex
 # Then ask: "Read this thread: https://forum.valuepickr.com/t/ranjans-portfolio/45082"
 ```
 
-## API Documentation
+## API Documentation (Standard MCP over SSE)
+
+This server implements the **Model Context Protocol (MCP)** over HTTP using Server-Sent Events (SSE).
 
 ### Endpoints
 
+#### `GET /sse`
+Establishes the SSE connection. Use this URL when configuring your MCP client (e.g., ChatGPT, Claude Desktop).
+
+#### `POST /messages`
+Handles JSON-RPC messages (automatically handled by MCP clients).
+
 #### `GET /`
-Health check - returns server info and available endpoints.
+Health check - returns server info.
 
-#### `GET /tools`
-Lists all available tools.
+### Connecting to ChatGPT / Claude Desktop
 
-#### `POST /read-thread`
-Reads a complete forum thread.
+1. **URL**: `https://valuepickr-mcp.onrender.com/sse`
+2. **Transport**: SSE (Server-Sent Events)
 
-**Request:**
-```json
-{
-  "url": "https://forum.valuepickr.com/t/ranjans-portfolio/45082"
-}
-```
-
-**Response:**
-```json
-{
-  "success": true,
-  "title": "Ranjan's portfolio",
-  "metadata": {
-    "views": 5991,
-    "replyCount": 18,
-    "likeCount": 31,
-    "category": 5
-  },
-  "postsCount": 25,
-  "transcript": "# Thread: Ranjan's portfolio\n..."
-}
-```
-
-#### `POST /search`
-Searches the forum for topics.
-
-**Request:**
-```json
-{
-  "query": "Asian Paints",
-  "limit": 5
-}
-```
-
-**Response:**
-```json
-{
-  "success": true,
-  "query": "Asian Paints",
-  "count": 5,
-  "results": [
-    {
-      "rank": 1,
-      "title": "Asian paints - color it green",
-      "url": "https://forum.valuepickr.com/t/...",
-      "date": "2024-01-15",
-      "replies": 3,
-      "views": 1234
-    }
-  ]
-}
-```
-
-#### `POST /search-within-thread`
-Searches for keywords within a specific thread.
-
-**Request:**
-```json
-{
-  "url": "https://forum.valuepickr.com/t/ranvirs-portfolio/1237",
-  "keyword": "Lenskart",
-  "case_sensitive": false
-}
-```
-
-**Response:**
-```json
-{
-  "success": true,
-  "title": "Ranvir's portfolio",
-  "keyword": "Lenskart",
-  "matchCount": 5,
-  "totalPosts": 1700,
-  "matches": [
-    {
-      "postNumber": 234,
-      "username": "ranvir",
-      "date": "2023-05-12",
-      "snippet": "...I've been tracking Lenskart for a while...",
-      "fullContent": "..."
-    }
-  ]
-}
-```
 
 ## Rate Limiting
 
