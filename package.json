@@ -5,8 +5,8 @@
   "main": "index.js",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
-    "start": "node src/index.js",
-    "start:http": "node src/server-http.js"
+    "start": "node src/server-http.js",
+    "start:stdio": "node src/index.js"
   },
   "keywords": [],
   "author": "",
