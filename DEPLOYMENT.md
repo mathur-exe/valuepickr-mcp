@@ -51,59 +51,23 @@ url = "https://valuepickr-mcp.onrender.com"
 
 ## API Endpoints (HTTP Server)
 
-### GET /
-Health check and server info
+The HTTP deployment exposes MCP-over-SSE endpoints (not custom REST endpoints):
 
-### GET /tools
-List available tools
+### `GET /`
+Health check and runtime info
 
-### POST /read-thread
-Read a forum thread
+### `GET /sse`
+Open MCP SSE stream
 
-**Request:**
-```json
-{
-  "url": "https://forum.valuepickr.com/t/ranjans-portfolio/45082"
-}
-```
+### `POST /messages`
+JSON-RPC transport endpoint used by MCP clients
 
-**Response:**
-```json
-{
-  "success": true,
-  "title": "Ranjan's portfolio",
-  "metadata": { "views": 5991, "replyCount": 18, "likeCount": 31 },
-  "postsCount": 25,
-  "transcript": "# Thread: Ranjan's portfolio\n..."
-}
-```
-
-### POST /search
-Search the forum
-
-**Request:**
-```json
-{
-  "query": "Asian Paints",
-  "limit": 5
-}
-```
-
-**Response:**
-```json
-{
-  "success": true,
-  "query": "Asian Paints",
-  "count": 5,
-  "results": [
-    {
-      "rank": 1,
-      "title": "Asian paints - color it green",
-      "url": "https://forum.valuepickr.com/t/...",
-      "date": "2024-01-15",
-      "replies": 3,
-      "views": 1234
-    }
-  ]
-}
-```
+Use MCP tools such as:
+- `read_forum_thread`
+- `search_forum`
+- `search_within_thread`
+- `start_read_forum_thread_job`
+- `start_search_within_thread_job`
+- `get_job_status`
+- `get_job_result`
+- `cancel_job`

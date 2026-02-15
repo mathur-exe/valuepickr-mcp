@@ -7,8 +7,10 @@ A Model Context Protocol (MCP) server for reading and searching ValuePickr forum
 - 🔍 **Read forum threads in dual mode** (chunked by default, full-thread on demand)
 - 🔎 **Search the forum** for topics
 - 🎯 **Search within threads** with chunked or full-thread scan
-- ⚡ **Smart rate limiting** - tiered delays based on thread size
-- 🛡️ **Robust error handling** - retries, URL validation, deleted post filtering
+- ⚡ **Config-driven rate limiting** - concurrency, global delay, and per-host quotas
+- 🛡️ **Robust error handling** - retries, 429 backoff, URL validation, deleted post filtering
+- 💾 **Raw page JSON cache** - TTL + stale-while-revalidate
+- 🧵 **Async job mode** - start/poll/cancel long-running thread jobs
 
 ## Quick Start
 
@@ -70,6 +72,23 @@ Tool responses include:
 2. If `has_more=true`, call again with `start_page=next_page`
 3. Repeat until `has_more=false`
 
+## Async Job Tools
+
+For long-running operations, use async job tools:
+
+- `start_read_forum_thread_job`
+- `start_search_within_thread_job`
+- `get_job_status`
+- `get_job_result`
+- `cancel_job`
+
+Typical flow:
+
+1. Start a job (`start_*_job`) and capture `job_id`
+2. Poll `get_job_status`
+3. Fetch final output with `get_job_result`
+4. Cancel anytime via `cancel_job`
+
 ## API Documentation (Standard MCP over SSE)
 
 This server implements the **Model Context Protocol (MCP)** over HTTP using Server-Sent Events (SSE).
@@ -93,13 +112,12 @@ Health check - returns server info.
 
 ## Rate Limiting
 
-The server uses intelligent, tiered rate limiting:
+The server uses a rate controller with:
 
-- **1-50 pages** (1-1000 posts): 0ms delay ⚡ Instant
-- **51-99 pages** (1001-1980 posts): 100ms delay 🚀 Fast
-- **100+ pages** (2000+ posts): 200ms delay 🛡️ Safe
-
-This keeps you under Discourse's rate limits while maximizing speed.
+- global concurrency limits
+- global inter-request delay
+- per-host quota-per-minute
+- adaptive retry/backoff for 429 and transient failures
 
 ## Deployment
 
@@ -116,9 +134,28 @@ This keeps you under Discourse's rate limits while maximizing speed.
 
 ### Environment Variables
 
-No environment variables are required. The server uses:
-- `PORT`: Auto-set by Render (defaults to 3000 locally)
-- `NODE_ENV`: Set to `production` in `render.yaml`
+Key environment variables:
+
+- `VP_MAX_CONCURRENCY` (default: `2`)
+- `VP_GLOBAL_DELAY_MS` (default: `400`)
+- `VP_HOST_QUOTA_PER_MINUTE` (default: `120`)
+- `VP_RETRY_ATTEMPTS` (default: `3`)
+- `VP_RETRY_BASE_MS` (default: `1000`)
+- `VP_RETRY_MAX_MS` (default: `10000`)
+- `VP_RETRY_JITTER_MS` (default: `250`)
+- `VP_CACHE_ENABLED` (default: `true`)
+- `VP_CACHE_TTL_MS` (default: `300000`)
+- `VP_CACHE_SWR_MS` (default: `1200000`)
+- `VP_CACHE_MAX_ENTRIES` (default: `500`)
+- `VP_JOB_MAX_CONCURRENT` (default: `4`)
+- `VP_JOB_RETENTION_MS` (default: `1800000`)
+- `VP_JOB_MAX_TOTAL` (default: `200`)
+- `VP_JOB_CLEANUP_INTERVAL_MS` (default: `60000`)
+
+Platform/runtime variables:
+
+- `PORT` (Auto-set by Render, defaults to `3000` locally)
+- `NODE_ENV` (`production` in `render.yaml`)
 
 ## Development
 
@@ -138,6 +175,8 @@ node src/index.js
 
 ### Run tests:
 ```bash
+npm test
+# or
 node test-all-features.js
 node test-tiered-latency.js
 node test-search-within-thread.js

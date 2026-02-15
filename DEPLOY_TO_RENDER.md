@@ -77,19 +77,11 @@ Open your browser or use curl:
 # Health check
 curl https://valuepickr-mcp.onrender.com/
 
-# List tools
-curl https://valuepickr-mcp.onrender.com/tools
-
-# Search the forum
-curl -X POST https://valuepickr-mcp.onrender.com/search \
-  -H "Content-Type: application/json" \
-  -d '{"query": "Asian Paints", "limit": 3}'
-
-# Read a thread
-curl -X POST https://valuepickr-mcp.onrender.com/read-thread \
-  -H "Content-Type: application/json" \
-  -d '{"url": "https://forum.valuepickr.com/t/ranjans-portfolio/45082"}'
+# MCP SSE endpoint (for MCP clients)
+curl https://valuepickr-mcp.onrender.com/sse
 ```
+
+This server speaks MCP over SSE (`/sse` + `/messages`), so call tools through an MCP client rather than custom REST routes.
 
 ## Step 6: Share Your Server
 
