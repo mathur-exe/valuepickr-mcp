@@ -27,6 +27,145 @@ const server = new Server(
 // --- Helpers ---
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+const MAX_CONCURRENCY = 2;
+const GLOBAL_DELAY_MS = 400;
+const DEFAULT_MAX_PAGES = 25;
+const HARD_MAX_PAGES = 300;
+const MAX_OUTPUT_CHARS = 180000;
+
+let activeRequests = 0;
+let lastRequestStart = 0;
+const requestQueue = [];
+let queueTimer = null;
+
+function processRequestQueue() {
+    if (activeRequests >= MAX_CONCURRENCY || requestQueue.length === 0) {
+        return;
+    }
+
+    const now = Date.now();
+    const waitMs = Math.max(0, lastRequestStart + GLOBAL_DELAY_MS - now);
+
+    if (waitMs > 0) {
+        if (!queueTimer) {
+            queueTimer = setTimeout(() => {
+                queueTimer = null;
+                processRequestQueue();
+            }, waitMs);
+        }
+        return;
+    }
+
+    const task = requestQueue.shift();
+    activeRequests++;
+    lastRequestStart = Date.now();
+
+    Promise.resolve()
+        .then(task.fn)
+        .then(task.resolve)
+        .catch(task.reject)
+        .finally(() => {
+            activeRequests--;
+            processRequestQueue();
+        });
+
+    processRequestQueue();
+}
+
+function enqueueRequest(fn) {
+    return new Promise((resolve, reject) => {
+        requestQueue.push({ fn, resolve, reject });
+        processRequestQueue();
+    });
+}
+
+function rateLimitedGet(url, config) {
+    return enqueueRequest(() => axios.get(url, config));
+}
+
+function toPositiveInt(value, fallback) {
+    if (value === undefined || value === null) {
+        return fallback;
+    }
+
+    const parsed = Number(value);
+    if (!Number.isFinite(parsed) || parsed <= 0) {
+        return fallback;
+    }
+
+    return Math.floor(parsed);
+}
+
+function getPageWindow(totalPages, { start_page, max_pages, full_thread }) {
+    if (!totalPages || totalPages < 1) {
+        return { startPage: 1, endPage: 1 };
+    }
+
+    const startPage = Math.min(Math.max(toPositiveInt(start_page, 1), 1), totalPages);
+    if (full_thread) {
+        return { startPage: 1, endPage: totalPages };
+    }
+
+    const boundedMaxPages = Math.min(toPositiveInt(max_pages, DEFAULT_MAX_PAGES), HARD_MAX_PAGES);
+    const endPage = Math.min(totalPages, startPage + boundedMaxPages - 1);
+    return { startPage, endPage };
+}
+
+async function fetchPostsForPageRange(url, initialData, startPage, endPage, totalPages) {
+    let allPosts = [];
+    const seenIds = new Set();
+
+    if (startPage === 1) {
+        const initialPosts = (initialData.post_stream && initialData.post_stream.posts) || [];
+        initialPosts.forEach((post) => {
+            if (!seenIds.has(post.id)) {
+                seenIds.add(post.id);
+                allPosts.push(post);
+            }
+        });
+    } else {
+        const startPageData = await fetchPage(url, startPage);
+        const startPosts = (startPageData && startPageData.post_stream && startPageData.post_stream.posts) || [];
+        startPosts.forEach((post) => {
+            if (!seenIds.has(post.id)) {
+                seenIds.add(post.id);
+                allPosts.push(post);
+            }
+        });
+    }
+
+    if (endPage > startPage) {
+        const delay = getOptimalDelay(totalPages);
+        console.log(`Using ${delay}ms delay for pages ${startPage + 1}-${endPage}`);
+
+        for (let page = startPage + 1; page <= endPage; page++) {
+            if (delay > 0) await sleep(delay);
+            const pageData = await fetchPage(url, page);
+            const pagePosts = (pageData && pageData.post_stream && pageData.post_stream.posts) || [];
+            pagePosts.forEach((post) => {
+                if (!seenIds.has(post.id)) {
+                    seenIds.add(post.id);
+                    allPosts.push(post);
+                }
+            });
+        }
+    }
+
+    allPosts.sort((a, b) => a.post_number - b.post_number);
+    return allPosts;
+}
+
+function maybeTruncateOutput(text) {
+    if (text.length <= MAX_OUTPUT_CHARS) {
+        return { text, truncated: false };
+    }
+
+    const truncatedText = text.slice(0, MAX_OUTPUT_CHARS);
+    return {
+        text: `${truncatedText}\n\n[Output truncated at ${MAX_OUTPUT_CHARS} characters. Narrow the range with start_page/max_pages, or run additional chunk calls.]`,
+        truncated: true,
+    };
+}
 
 // Get optimal delay based on thread size to avoid rate limits
 function getOptimalDelay(totalPages) {
@@ -55,7 +194,7 @@ async function fetchTopic(url) {
     }
     const jsonUrl = url.split("?")[0].replace(/\/$/, "") + ".json";
     console.log(`Fetching topic: ${jsonUrl}`);
-    const response = await axios.get(jsonUrl, {
+    const response = await rateLimitedGet(jsonUrl, {
         headers: {
             "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36",
             "Accept": "application/json"
@@ -70,7 +209,7 @@ async function fetchPage(url, page) {
     let retries = 3;
     while (retries > 0) {
         try {
-            const response = await axios.get(jsonUrl, {
+            const response = await rateLimitedGet(jsonUrl, {
                 headers: {
                     "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36",
                     "Accept": "application/json"
@@ -91,7 +230,7 @@ async function searchForum(query, limit = 10) {
     const searchUrl = `${baseUrl}/search/query.json?term=${encodeURIComponent(query)}`;
     console.log(`Searching: ${searchUrl}`);
 
-    const response = await axios.get(searchUrl, {
+    const response = await rateLimitedGet(searchUrl, {
         headers: {
             "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36",
             "Accept": "application/json"
@@ -112,13 +251,29 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
         tools: [
             {
                 name: "read_forum_thread",
-                description: "Reads a ValuePickr/Discourse forum thread. Handles pagination automatically.",
+                description: "Reads a ValuePickr/Discourse forum thread. Defaults to chunked pagination; set full_thread=true for full retrieval in one call.",
                 inputSchema: {
                     type: "object",
                     properties: {
                         url: {
                             type: "string",
                             description: "The full URL of the forum topic",
+                        },
+                        start_page: {
+                            type: "number",
+                            description: "1-based page to start from (default: 1). Ignored when full_thread=true.",
+                        },
+                        max_pages: {
+                            type: "number",
+                            description: `Maximum pages to fetch in this call (default: ${DEFAULT_MAX_PAGES}, max: ${HARD_MAX_PAGES}). Ignored when full_thread=true.`,
+                        },
+                        full_thread: {
+                            type: "boolean",
+                            description: "If true, fetches all pages in one call.",
+                        },
+                        include_full_content: {
+                            type: "boolean",
+                            description: "If false, returns snippets instead of full post text.",
                         },
                     },
                     required: ["url"],
@@ -144,7 +299,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
             },
             {
                 name: "search_within_thread",
-                description: "Searches for a keyword within a specific forum thread.",
+                description: "Searches for a keyword within a forum thread. Defaults to chunked pagination; set full_thread=true to scan all pages.",
                 inputSchema: {
                     type: "object",
                     properties: {
@@ -160,6 +315,22 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
                             type: "boolean",
                             description: "Whether the search should be case-sensitive (default: false)",
                         },
+                        start_page: {
+                            type: "number",
+                            description: "1-based page to start scanning from (default: 1). Ignored when full_thread=true.",
+                        },
+                        max_pages: {
+                            type: "number",
+                            description: `Maximum pages to scan in this call (default: ${DEFAULT_MAX_PAGES}, max: ${HARD_MAX_PAGES}). Ignored when full_thread=true.`,
+                        },
+                        full_thread: {
+                            type: "boolean",
+                            description: "If true, scans all pages in one call.",
+                        },
+                        include_full_content: {
+                            type: "boolean",
+                            description: "If false, returns snippets instead of full post text for matches.",
+                        },
                     },
                     required: ["url", "keyword"],
                 },
@@ -173,7 +344,13 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
 server.setRequestHandler(CallToolRequestSchema, async (request) => {
     // Tool: read_forum_thread
     if (request.params.name === "read_forum_thread") {
-        const { url } = request.params.arguments;
+        const {
+            url,
+            start_page,
+            max_pages,
+            full_thread = false,
+            include_full_content = true,
+        } = request.params.arguments;
         try {
             const initialData = await fetchTopic(url);
             if (!initialData || !initialData.post_stream) {
@@ -185,25 +362,16 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
             const { title, post_stream } = initialData;
             const totalPosts = initialData.posts_count || post_stream.stream.length;
-            let allPosts = [...post_stream.posts];
-
             const postsPerPage = 20;
             const totalPages = Math.ceil(totalPosts / postsPerPage);
-
-            if (totalPages > 1) {
-                const delay = getOptimalDelay(totalPages);
-                console.log(`Using ${delay}ms delay for ${totalPages} pages`);
-                for (let i = 2; i <= totalPages; i++) {
-                    if (delay > 0) await sleep(delay);
-                    const pageData = await fetchPage(url, i);
-                    if (pageData && pageData.post_stream && pageData.post_stream.posts) {
-                        const newPosts = pageData.post_stream.posts.filter(
-                            (p) => !allPosts.find((existing) => existing.id === p.id)
-                        );
-                        allPosts = [...allPosts, ...newPosts];
-                    }
-                }
-            }
+            const { startPage, endPage } = getPageWindow(totalPages, {
+                start_page,
+                max_pages,
+                full_thread,
+            });
+            const hasMore = endPage < totalPages;
+            const nextPage = hasMore ? endPage + 1 : null;
+            const allPosts = await fetchPostsForPageRange(url, initialData, startPage, endPage, totalPages);
 
             const views = initialData.views || "Unknown";
             const replyCount = initialData.reply_count || (totalPosts - 1);
@@ -213,17 +381,22 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
             let transcript = `# Thread: ${title}\n`;
             transcript += `**Metadata**: ${views} views | ${replyCount} replies | ${likeCount} likes | Category ID: ${category}\n`;
             transcript += `**URL**: ${url}\n\n---\n\n`;
+            transcript += `**Pagination**: pages ${startPage}-${endPage} of ${totalPages} | has_more=${hasMore}${nextPage ? ` | next_page=${nextPage}` : ""}\n`;
+            transcript += `**Mode**: ${full_thread ? "full_thread" : "chunked"}\n\n---\n\n`;
 
-            allPosts.sort((a, b) => a.post_number - b.post_number);
             allPosts.forEach((post) => {
                 if (post.deleted_at) return;
                 const date = new Date(post.created_at).toISOString().split('T')[0];
                 const content = stripHtml(post.cooked).trim();
-                transcript += `### [${post.post_number}] ${post.username} (${date}):\n${content}\n\n---\n\n`;
+                const renderedContent = include_full_content
+                    ? content
+                    : `${content.slice(0, 300)}${content.length > 300 ? "..." : ""}`;
+                transcript += `### [${post.post_number}] ${post.username} (${date}):\n${renderedContent}\n\n---\n\n`;
             });
+            const { text: finalOutput } = maybeTruncateOutput(transcript);
 
             return {
-                content: [{ type: "text", text: transcript }],
+                content: [{ type: "text", text: finalOutput }],
             };
         } catch (error) {
             return {
@@ -266,7 +439,15 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
     // Tool: search_within_thread
     if (request.params.name === "search_within_thread") {
-        const { url, keyword, case_sensitive = false } = request.params.arguments;
+        const {
+            url,
+            keyword,
+            case_sensitive = false,
+            start_page,
+            max_pages,
+            full_thread = false,
+            include_full_content = true,
+        } = request.params.arguments;
         try {
             const initialData = await fetchTopic(url);
             if (!initialData || !initialData.post_stream) {
@@ -278,27 +459,16 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
             const { title, post_stream } = initialData;
             const totalPosts = initialData.posts_count || post_stream.stream.length;
-            let allPosts = [...post_stream.posts];
-
             const postsPerPage = 20;
             const totalPages = Math.ceil(totalPosts / postsPerPage);
-
-            if (totalPages > 1) {
-                const delay = getOptimalDelay(totalPages);
-                console.log(`Using ${delay}ms delay for ${totalPages} pages`);
-                for (let i = 2; i <= totalPages; i++) {
-                    if (delay > 0) await sleep(delay);
-                    const pageData = await fetchPage(url, i);
-                    if (pageData && pageData.post_stream && pageData.post_stream.posts) {
-                        const newPosts = pageData.post_stream.posts.filter(
-                            (p) => !allPosts.find((existing) => existing.id === p.id)
-                        );
-                        allPosts = [...allPosts, ...newPosts];
-                    }
-                }
-            }
-
-            allPosts.sort((a, b) => a.post_number - b.post_number);
+            const { startPage, endPage } = getPageWindow(totalPages, {
+                start_page,
+                max_pages,
+                full_thread,
+            });
+            const hasMore = endPage < totalPages;
+            const nextPage = hasMore ? endPage + 1 : null;
+            const allPosts = await fetchPostsForPageRange(url, initialData, startPage, endPage, totalPages);
             const searchTerm = case_sensitive ? keyword : keyword.toLowerCase();
             const matchingPosts = allPosts.filter((post) => {
                 if (post.deleted_at) return false;
@@ -314,12 +484,16 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
             }
 
             let output = `# Search Results for "${keyword}" in "${title}"\n\n`;
-            output += `**Found ${matchingPosts.length} matching post(s) out of ${totalPosts} total posts**\n\n`;
+            output += `**Found ${matchingPosts.length} matching post(s) in scanned pages ${startPage}-${endPage} of ${totalPages}**\n`;
+            output += `**Pagination**: has_more=${hasMore}${nextPage ? ` | next_page=${nextPage}` : ""}\n\n`;
             output += `**Thread URL**: ${url}\n\n---\n\n`;
 
             matchingPosts.forEach((post) => {
                 const date = new Date(post.created_at).toISOString().split('T')[0];
                 const content = stripHtml(post.cooked).trim();
+                const renderedContent = include_full_content
+                    ? content
+                    : `${content.slice(0, 300)}${content.length > 300 ? "..." : ""}`;
                 const searchContent = case_sensitive ? content : content.toLowerCase();
                 const keywordIndex = searchContent.indexOf(searchTerm);
                 const snippetStart = Math.max(0, keywordIndex - 100);
@@ -330,11 +504,12 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
                 output += `### [Post #${post.post_number}] ${post.username} (${date})\n`;
                 output += `**Context**: ${prefix}${snippet}${suffix}\n\n`;
-                output += `**Full content**:\n${content}\n\n---\n\n`;
+                output += `**Content**:\n${renderedContent}\n\n---\n\n`;
             });
+            const { text: finalOutput } = maybeTruncateOutput(output);
 
             return {
-                content: [{ type: "text", text: output }],
+                content: [{ type: "text", text: finalOutput }],
             };
         } catch (error) {
             return {

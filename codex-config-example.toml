@@ -2,7 +2,8 @@
 
 [mcp_servers.valuepickr]
 command = "node"
-args = ["/Users/gaurangmathur/Gaurang/Code/Gemini Website/ValuePickr/valuepickr-mcp/src/index.js"]
+args = ["/Users/gaurangmathur/Gaurang/Code/_tools/ValuePickr/valuepickr-mcp/src/index.js"]
 enabled = true
 startup_timeout_sec = 10
-tool_timeout_sec = 60
+# Increase timeout for full_thread=true on very large threads
+tool_timeout_sec = 240

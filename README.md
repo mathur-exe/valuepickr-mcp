@@ -4,9 +4,9 @@ A Model Context Protocol (MCP) server for reading and searching ValuePickr forum
 
 ## Features
 
-- 🔍 **Read full forum threads** with automatic pagination
+- 🔍 **Read forum threads in dual mode** (chunked by default, full-thread on demand)
 - 🔎 **Search the forum** for topics
-- 🎯 **Search within threads** for specific keywords
+- 🎯 **Search within threads** with chunked or full-thread scan
 - ⚡ **Smart rate limiting** - tiered delays based on thread size
 - 🛡️ **Robust error handling** - retries, URL validation, deleted post filtering
 
@@ -42,6 +42,33 @@ codex mcp add valuepickr -- node /path/to/valuepickr-mcp/src/index.js
 codex
 # Then ask: "Read this thread: https://forum.valuepickr.com/t/ranjans-portfolio/45082"
 ```
+
+## Dual Mode (Recommended)
+
+`read_forum_thread` and `search_within_thread` now support both:
+
+- **Chunked mode (default)**: fast and reliable for large threads
+- **Full-thread mode**: set `full_thread=true` to fetch everything in one call
+
+### Parameters
+
+- `start_page` (number, default `1`)
+- `max_pages` (number, default `25`, max `300`)
+- `full_thread` (boolean, default `false`)
+- `include_full_content` (boolean, default `true`)
+
+### Continuation Metadata
+
+Tool responses include:
+
+- `has_more=true/false`
+- `next_page=<n>` when more pages remain
+
+### Example workflow (large thread)
+
+1. Call `read_forum_thread` with `start_page=1`, `max_pages=25`
+2. If `has_more=true`, call again with `start_page=next_page`
+3. Repeat until `has_more=false`
 
 ## API Documentation (Standard MCP over SSE)
 
@@ -104,7 +131,7 @@ node src/server-http.js
 
 ### Run the stdio server (for Codex):
 ```bash
-npm start
+npm run start:stdio
 # or
 node src/index.js
 ```
