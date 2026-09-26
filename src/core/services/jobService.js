@@ -32,6 +32,9 @@ class JobService {
     }
 
     startJob(type, params) {
+        if (!this.jobStore.makeRoom()) {
+            throw new Error("Job capacity reached; try again later");
+        }
         const job = this.jobStore.createJob({ type, params });
         this.queue.push(job.id);
         this.drain();

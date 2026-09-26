@@ -47,7 +47,6 @@ function createCore({ logger = console, env = process.env } = {}) {
     });
 
     const handlers = createToolHandlers({
-        config,
         threadService,
         searchService,
         jobService,

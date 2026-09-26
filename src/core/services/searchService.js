@@ -24,7 +24,7 @@ class SearchService {
             const url = `https://forum.valuepickr.com/t/${topic.slug}/${topic.id}`;
             output += `### ${index + 1}. ${topic.title}\n`;
             output += `- **URL**: ${url}\n`;
-            output += `- **Date**: ${formatDate(topic.created_at)} | **Replies**: ${topic.posts_count - 1} | **Views**: ${topic.views}\n\n`;
+            output += `- **Date**: ${formatDate(topic.created_at)} | **Replies**: ${Math.max(0, (topic.posts_count || 1) - 1)} | **Views**: ${topic.views ?? "Unknown"}\n\n`;
         });
 
         return {

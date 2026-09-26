@@ -1,73 +1,34 @@
-// HTTP-based MCP server for remote deployment (Render, Railway, etc.)
-// Implements standard MCP Protocol via Server-Sent Events (SSE)
-const express = require("express");
-const { Server } = require("@modelcontextprotocol/sdk/server/index.js");
-const { SSEServerTransport } = require("@modelcontextprotocol/sdk/server/sse.js");
-const {
-    CallToolRequestSchema,
-    ListToolsRequestSchema,
-} = require("@modelcontextprotocol/sdk/types.js");
-
+const { createServerFactory } = require("./mcp-server");
 const { createCore } = require("./core/createCore");
 
-const app = express();
-const core = createCore({ logger: console, env: process.env });
+async function createHttpApp(env = process.env, core = createCore({ env })) {
+    const [{ createMcpHandler }, { toNodeHandler }, { createMcpExpressApp }] = await Promise.all([
+        import("@modelcontextprotocol/server"),
+        import("@modelcontextprotocol/node"),
+        import("@modelcontextprotocol/express"),
+    ]);
+    const factory = await createServerFactory(core);
+    const host = env.HOST || (env.NODE_ENV === "production" || env.RENDER_EXTERNAL_HOSTNAME ? "0.0.0.0" : "127.0.0.1");
+    const allowedHosts = (env.VP_ALLOWED_HOSTS || "localhost,127.0.0.1,[::1]")
+        .split(",").map((value) => value.trim()).filter(Boolean);
+    if (env.RENDER_EXTERNAL_HOSTNAME) allowedHosts.push(env.RENDER_EXTERNAL_HOSTNAME);
+    const allowedOrigins = (env.VP_ALLOWED_ORIGINS || allowedHosts.join(","))
+        .split(",").map((value) => value.trim()).filter(Boolean);
+    const app = createMcpExpressApp({ host, allowedHosts, allowedOrigins, jsonLimit: "64kb" });
+    const handler = createMcpHandler(factory);
+    const nodeHandler = toNodeHandler(handler);
 
-const server = new Server(
-    {
-        name: "valuepickr-mcp",
-        version: "1.2.0",
-    },
-    {
-        capabilities: {
-            tools: {},
-        },
-    }
-);
+    app.all("/mcp", (req, res) => nodeHandler(req, res, req.body));
+    app.get("/", (_req, res) => res.json({ status: "running", protocol: "mcp-streamable-http", endpoint: "/mcp" }));
+    return { app, handler, core, host };
+}
 
-server.setRequestHandler(ListToolsRequestSchema, async () => {
-    return core.handlers.listTools();
-});
+async function main() {
+    const { app, host } = await createHttpApp();
+    const port = Number(process.env.PORT || 3000);
+    app.listen(port, host, () => console.log(`ValuePickr MCP listening at http://${host}:${port}/mcp`));
+}
 
-server.setRequestHandler(CallToolRequestSchema, async (request) => {
-    return core.handlers.callTool(request);
-});
+if (require.main === module) main().catch((error) => { console.error(error); process.exitCode = 1; });
 
-let transport;
-
-app.get("/sse", async (req, res) => {
-    console.log("New SSE connection established");
-    transport = new SSEServerTransport("/messages", res);
-    await server.connect(transport);
-
-    req.on("close", () => {
-        console.log("SSE connection closed");
-    });
-});
-
-app.post("/messages", async (req, res) => {
-    if (!transport) {
-        res.status(400).send("No active SSE connection");
-        return;
-    }
-
-    await transport.handlePostMessage(req, res);
-});
-
-app.get("/", (req, res) => {
-    res.json({
-        status: "running",
-        protocol: "mcp-sse",
-        endpoints: {
-            sse: "/sse",
-            messages: "/messages",
-        },
-        cache: core.services.pageCache.getStats(),
-    });
-});
-
-const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
-    console.log(`ValuePickr MCP Server (SSE) running on port ${PORT}`);
-    console.log(`SSE Endpoint: http://localhost:${PORT}/sse`);
-});
+module.exports = { createHttpApp };

@@ -1,8 +1,7 @@
-const { getToolDefinitions } = require("./definitions");
-
-function textResponse(text) {
+function textResponse(text, data = {}) {
     return {
         content: [{ type: "text", text }],
+        structuredContent: { text, data },
     };
 }
 
@@ -14,16 +13,10 @@ function errorResponse(text) {
 }
 
 function objectResponse(obj) {
-    return textResponse(JSON.stringify(obj, null, 2));
+    return textResponse(JSON.stringify(obj, null, 2), obj);
 }
 
-function createToolHandlers({ config, threadService, searchService, jobService }) {
-    const tools = getToolDefinitions(config);
-
-    async function listTools() {
-        return { tools };
-    }
-
+function createToolHandlers({ threadService, searchService, jobService }) {
     async function callTool(request) {
         const name = request?.params?.name;
         const args = request?.params?.arguments || {};
@@ -31,17 +24,17 @@ function createToolHandlers({ config, threadService, searchService, jobService }
         try {
             if (name === "read_forum_thread") {
                 const result = await threadService.readForumThread(args);
-                return textResponse(result.text);
+                return textResponse(result.text, result.meta);
             }
 
             if (name === "search_forum") {
                 const result = await searchService.searchForum(args);
-                return textResponse(result.text);
+                return textResponse(result.text, result.meta);
             }
 
             if (name === "search_within_thread") {
                 const result = await threadService.searchWithinThread(args);
-                return textResponse(result.text);
+                return textResponse(result.text, result.meta);
             }
 
             if (name === "start_read_forum_thread_job") {
@@ -73,7 +66,7 @@ function createToolHandlers({ config, threadService, searchService, jobService }
                     return objectResponse(result);
                 }
 
-                return textResponse(result.result.text);
+                return textResponse(result.result.text, { ...result.result.meta, status: result.status });
             }
 
             if (name === "cancel_job") {
@@ -92,7 +85,6 @@ function createToolHandlers({ config, threadService, searchService, jobService }
     }
 
     return {
-        listTools,
         callTool,
     };
 }

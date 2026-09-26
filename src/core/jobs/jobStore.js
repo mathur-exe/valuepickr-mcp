@@ -1,3 +1,4 @@
+const { randomUUID } = require("node:crypto");
 const TERMINAL_STATUSES = new Set(["completed", "failed", "cancelled", "expired"]);
 
 class JobStore {
@@ -5,7 +6,6 @@ class JobStore {
         this.retentionMs = retentionMs;
         this.maxTotal = maxTotal;
         this.jobs = new Map();
-        this.counter = 0;
     }
 
     createJob({ type, params }) {
@@ -39,8 +39,7 @@ class JobStore {
     }
 
     generateId() {
-        this.counter += 1;
-        return `job_${Date.now()}_${this.counter}`;
+        return randomUUID();
     }
 
     get(id) {
@@ -49,6 +48,18 @@ class JobStore {
 
     list() {
         return Array.from(this.jobs.values());
+    }
+
+    makeRoom() {
+        this.cleanup();
+        if (this.jobs.size < this.maxTotal) return true;
+
+        const oldestFinished = this.list()
+            .filter((job) => this.isTerminal(job.status))
+            .sort((a, b) => (a.finishedAt || a.updatedAt) - (b.finishedAt || b.updatedAt))[0];
+        if (!oldestFinished) return false;
+        this.jobs.delete(oldestFinished.id);
+        return true;
     }
 
     setAbortController(id, controller) {

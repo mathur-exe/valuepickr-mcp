@@ -1,6 +1,6 @@
 const axios = require("axios");
 const {
-    isValidHttpUrl,
+    isValidTopicUrl,
     normalizeTopicUrl,
     buildTopicJsonUrl,
     parseRetryAfterMs,
@@ -22,8 +22,8 @@ class ForumClient {
     }
 
     ensureValidUrl(url) {
-        if (!isValidHttpUrl(url)) {
-            throw new Error("Invalid URL provided");
+        if (!isValidTopicUrl(url)) {
+            throw new Error("Expected an HTTPS ValuePickr forum topic URL");
         }
     }
 
@@ -84,6 +84,14 @@ class ForumClient {
                 const response = await this.rateController.schedule(() => this.axios.get(url, {
                     headers: DEFAULT_HEADERS,
                     signal,
+                    timeout: 15000,
+                    maxContentLength: 5 * 1024 * 1024,
+                    maxRedirects: 3,
+                    beforeRedirect: (options) => {
+                        if (options.protocol !== "https:" || options.hostname !== "forum.valuepickr.com") {
+                            throw new Error("Forum redirect left the allowed host");
+                        }
+                    },
                 }), { host });
                 return response.data;
             } catch (error) {

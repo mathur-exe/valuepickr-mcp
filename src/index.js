@@ -1,34 +1,10 @@
 #!/usr/bin/env node
-const { Server } = require("@modelcontextprotocol/sdk/server/index.js");
-const { StdioServerTransport } = require("@modelcontextprotocol/sdk/server/stdio.js");
-const {
-    CallToolRequestSchema,
-    ListToolsRequestSchema,
-} = require("@modelcontextprotocol/sdk/types.js");
+const { createServerFactory } = require("./mcp-server");
 
-const { createCore } = require("./core/createCore");
+async function main() {
+    const { serveStdio } = await import("@modelcontextprotocol/server/stdio");
+    const factory = await createServerFactory();
+    await serveStdio(factory);
+}
 
-const core = createCore({ logger: console, env: process.env });
-
-const server = new Server(
-    {
-        name: "valuepickr-mcp",
-        version: "1.2.0",
-    },
-    {
-        capabilities: {
-            tools: {},
-        },
-    }
-);
-
-server.setRequestHandler(ListToolsRequestSchema, async () => {
-    return core.handlers.listTools();
-});
-
-server.setRequestHandler(CallToolRequestSchema, async (request) => {
-    return core.handlers.callTool(request);
-});
-
-const transport = new StdioServerTransport();
-server.connect(transport);
+main().catch((error) => { console.error(error); process.exitCode = 1; });

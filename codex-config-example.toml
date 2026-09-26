@@ -1,9 +1,5 @@
-# Add this to your ~/.codex/config.toml file
-
+# Add to ~/.codex/config.toml after starting npm run start:http locally.
 [mcp_servers.valuepickr]
-command = "node"
-args = ["/Users/gaurangmathur/Gaurang/Code/_tools/ValuePickr/valuepickr-mcp/src/index.js"]
+url = "http://127.0.0.1:3000/mcp"
 enabled = true
-startup_timeout_sec = 10
-# Increase timeout for full_thread=true on very large threads
 tool_timeout_sec = 240

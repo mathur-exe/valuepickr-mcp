@@ -7,10 +7,17 @@ function stripHtml(html) {
     return html.replace(/<[^>]*>?/gm, "");
 }
 
-function isValidHttpUrl(value) {
+function isValidTopicUrl(value) {
     try {
         const parsed = new URL(value);
-        return parsed.protocol === "http:" || parsed.protocol === "https:";
+        const parts = parsed.pathname.split("/").filter(Boolean);
+        const topicPath = parts[0] === "t" && (
+            (parts.length === 2 && /^\d+$/.test(parts[1])) ||
+            ((parts.length === 3 || parts.length === 4) && /^\d+$/.test(parts[2]) &&
+                (parts.length === 3 || /^\d+$/.test(parts[3])))
+        );
+        return parsed.protocol === "https:" && parsed.hostname === "forum.valuepickr.com" &&
+            !parsed.port && !parsed.username && !parsed.password && topicPath;
     } catch (_) {
         return false;
     }
@@ -24,7 +31,11 @@ function toPositiveInt(value, fallback) {
 }
 
 function normalizeTopicUrl(url) {
-    return url.split("?")[0].replace(/\/$/, "");
+    if (!isValidTopicUrl(url)) throw new Error("Expected a ValuePickr forum topic URL");
+    const parsed = new URL(url);
+    const parts = parsed.pathname.split("/").filter(Boolean);
+    if (parts.length === 4) parts.pop();
+    return `${parsed.origin}/${parts.join("/")}`;
 }
 
 function buildTopicJsonUrl(url, page) {
@@ -59,7 +70,7 @@ function formatDate(dateValue) {
 module.exports = {
     sleep,
     stripHtml,
-    isValidHttpUrl,
+    isValidTopicUrl,
     toPositiveInt,
     normalizeTopicUrl,
     buildTopicJsonUrl,

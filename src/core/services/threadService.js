@@ -13,6 +13,9 @@ class ThreadService {
         }
 
         if (full_thread) {
+            if (totalPages > this.config.pagination.hardMaxPages) {
+                throw new Error(`Thread has ${totalPages} pages; use chunked mode (max ${this.config.pagination.hardMaxPages} pages per call)`);
+            }
             return { startPage: 1, endPage: totalPages };
         }
 
@@ -98,14 +101,10 @@ class ThreadService {
     }
 
     truncateOutput(text) {
-        if (text.length <= this.config.maxOutputChars) {
-            return { text, truncated: false };
+        if (text.length > this.config.maxOutputChars) {
+            throw new Error(`Output exceeds ${this.config.maxOutputChars} characters; use fewer pages or include_full_content=false`);
         }
-
-        return {
-            text: `${text.slice(0, this.config.maxOutputChars)}\n\n[Output truncated at ${this.config.maxOutputChars} characters. Narrow the range with start_page/max_pages, or run additional chunk calls.]`,
-            truncated: true,
-        };
+        return { text, truncated: false };
     }
 
     async readForumThread(params, options = {}) {

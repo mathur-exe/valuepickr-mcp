@@ -1,73 +1,16 @@
-# ValuePickr MCP Server - Deployment Guide
+# Deployment notes
 
-## Files Overview
+The live Render service is `valuepickr-mcp-1`, connected to this repository's `main` branch with auto-deploy enabled. `render.yaml` records its intended configuration; it applies to the existing service only if managed through a Render Blueprint.
 
-- **`src/index.js`**: Stdio-based server for local use with Codex CLI
-- **`src/server-http.js`**: HTTP-based server for remote deployment (Render, Railway, etc.)
+The server exposes `/mcp` as its Streamable HTTP endpoint and `GET /` for health checks. On Render, it binds to `0.0.0.0:$PORT` and accepts Render's `RENDER_EXTERNAL_HOSTNAME`. Set `VP_ALLOWED_HOSTS` for custom domains and `VP_ALLOWED_ORIGINS` for browser clients if needed. The existing service starts with `node src/server-http.js`; use `npm ci` as its build command and `/` as its health check path.
 
-## Local Usage (Codex CLI)
-
-Use the stdio version as you've been doing:
-
-```bash
-codex mcp add valuepickr -- node /Users/gaurangmathur/Gaurang/Code/Gemini Website/ValuePickr/valuepickr-mcp/src/index.js
-```
-
-## Remote Deployment (Render.com)
-
-### Step 1: Test HTTP Server Locally
-
-```bash
-node src/server-http.js
-```
-
-Visit `http://localhost:3000` to verify it's running.
-
-### Step 2: Create Render Configuration
-
-Create a `render.yaml` file (already included in this repo).
-
-### Step 3: Deploy to Render
-
-1. Push this repo to GitHub
-2. Go to [render.com](https://render.com) and sign up (free)
-3. Click "New +" → "Web Service"
-4. Connect your GitHub repo
-5. Render will auto-detect the configuration
-
-### Step 4: Use the Deployed Server
-
-Once deployed, you'll get a URL like:
-```
-https://valuepickr-mcp.onrender.com
-```
-
-Anyone can then use it by adding to their Codex config:
+After deployment, configure a client with the full MCP endpoint URL:
 
 ```toml
-[mcp_servers.valuepickr-remote]
-url = "https://valuepickr-mcp.onrender.com"
+[mcp_servers.valuepickr]
+url = "https://valuepickr-mcp-1.onrender.com/mcp"
 ```
 
-## API Endpoints (HTTP Server)
+The separate `https://valuepickr-mcp.onrender.com` service is suspended. The old `/sse` and `/messages` endpoints are not part of this version.
 
-The HTTP deployment exposes MCP-over-SSE endpoints (not custom REST endpoints):
-
-### `GET /`
-Health check and runtime info
-
-### `GET /sse`
-Open MCP SSE stream
-
-### `POST /messages`
-JSON-RPC transport endpoint used by MCP clients
-
-Use MCP tools such as:
-- `read_forum_thread`
-- `search_forum`
-- `search_within_thread`
-- `start_read_forum_thread_job`
-- `start_search_within_thread_job`
-- `get_job_status`
-- `get_job_result`
-- `cancel_job`
+Run `npm test` before deploying, then verify tool listing, a forum search, a thread read, and a background job against the public endpoint.
